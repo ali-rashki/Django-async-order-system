@@ -1,0 +1,112 @@
+services:
+  # PostgreSQL Database Service
+  db:
+    image: postgres:15
+    container_name: django_async_db
+    restart: always
+    environment:
+      POSTGRES_DB: django_async_db
+      POSTGRES_USER: django_user
+      POSTGRES_PASSWORD: django_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U django_user -d django_async_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - django_network
+
+  # Redis Service (for Celery Broker)
+  redis:
+    image: redis:7-alpine
+    container_name: django_async_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - django_network
+
+  # Django Web Service
+  web:
+    build: .
+    container_name: django_async_web
+    restart: always
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DATABASE_URL=postgresql://django_user:django_password@db:5432/django_async_db
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - django_network
+
+  # Celery Worker Service
+  celery:
+    build: .
+    container_name: django_async_celery
+    restart: always
+    command: celery -A config worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DATABASE_URL=postgresql://django_user:django_password@db:5432/django_async_db
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - django_network
+
+  # Celery Beat Service (for scheduled tasks)
+  celery-beat:
+    build: .
+    container_name: django_async_celery_beat
+    restart: always
+    command: celery -A config beat -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+      - celery
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DATABASE_URL=postgresql://django_user:django_password@db:5432/django_async_db
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - django_network
+
+# Volumes for persistent data storage
+volumes:
+  postgres_data:
+  redis_data:
+
+# Internal network
+networks:
+  django_network:
+    driver: bridge
