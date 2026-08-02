@@ -7,6 +7,9 @@ import os
 import sys
 from pathlib import Path
 
+# Celery beat schedule imports
+from celery.schedules import crontab
+
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -124,7 +127,9 @@ REST_FRAMEWORK = {
     ],
 }
 
+# ============================================
 # Celery Configuration
+# ============================================
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
@@ -132,3 +137,47 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# ============================================
+# Celery Beat Schedule
+# ============================================
+CELERY_BEAT_SCHEDULE = {
+    # Cancel old pending orders daily at 9:00 AM
+    'cancel_old_pending_orders': {
+        'task': 'apps.orders.tasks.cancel_old_pending_orders',
+        'schedule': crontab(hour=9, minute=0),
+        'args': (),
+        'description': 'Cancel pending orders older than 24 hours',
+    },
+
+    # Clean up old invoice files every Sunday at midnight
+    'cleanup_old_invoices': {
+        'task': 'apps.orders.tasks.cleanup_old_invoices',
+        'schedule': crontab(day_of_week=0, hour=0, minute=0),
+        'args': (),
+        'description': 'Delete invoice files older than 30 days',
+    },
+
+    # Send daily sales report at 6:00 PM
+    'send_daily_sales_report': {
+        'task': 'apps.orders.tasks.send_daily_sales_report',
+        'schedule': crontab(hour=18, minute=0),
+        'args': (),
+        'description': 'Send daily sales report to admin',
+    },
+}
+
+# ============================================
+# Cache Configuration (Redis)
+# ============================================
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'django_async',
+        'TIMEOUT': 3600,  # 1 hour default
+    }
+}
