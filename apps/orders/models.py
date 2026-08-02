@@ -156,9 +156,13 @@ class OrderItem(models.Model):
         return f'{self.product.name} x {self.quantity}'
 
     def get_subtotal(self):
+        """Calculate subtotal for this item."""
+        if self.quantity is None or self.price is None:
+            return 0
         return self.quantity * self.price
 
     def save(self, *args, **kwargs):
+        """Auto-set price from product if not provided."""
         if not self.price:
             self.price = self.product.price
         super().save(*args, **kwargs)
